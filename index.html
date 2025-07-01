@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Activity Visualizer</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/recharts@2.8.0/umd/Recharts.js"></script>
+    <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+    <script src="https://unpkg.com/lucide-react@0.263.1/dist/umd/lucide-react.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+        const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } = Recharts;
+        const { ChevronLeft, ChevronRight, TrendingUp, Search, Calendar, RefreshCw } = LucideReact;
+
+        const UserActivityVisualizer = () => {
+          const [csvData, setCsvData] = useState([]);
+          const [users, setUsers] = useState([]);
+          const [selectedUser, setSelectedUser] = useState('');
+          const [currentDay, setCurrentDay] = useState(0);
+          const [searchTerm, setSearchTerm] = useState('');
+          const [showAutocomplete, setShowAutocomplete] = useState(false);
+          const [showAverage, setShowAverage] = useState(false);
+          const [availableDays, setAvailableDays] = useState([]);
+          const [loading, setLoading] = useState(true);
+          const [lastUpdated, setLastUpdated] = useState('');
+
+          // Auto-load CSV from GitHub
+          const loadCSVFromGitHub = async () => {
+            try {
+              setLoading(true);
+              const response = await fetch('./user_log.csv?' + Date.now()); // Cache busting
+              const csvText = await response.text();
+              
+              Papa.parse(csvText, {
+                complete: (results) => {
+                  if (!results.data || results.data.length < 2) {
+                    console.error('CSV file appears to be empty or invalid');
+                    return;
+                  }
+                  
+                  const headers = results.data[0];
+                  const data = results.data.slice(1)
+                    .filter(row => row && row.length > 0 && row[0])
+                    .map(row => {
+                      const obj = {};
+                      headers.forEach((header, index) => {
+                        if (index === 0) {
+                          obj.timestamp = row[index];
+                        } else {
+                          obj[header] = parseInt(row[index]) || 0;
+                        }
+                      });
+                      return obj;
+                    })
+                    .filter(row => row.timestamp && row.timestamp.trim() !== '');
+                  
+                  setCsvData(data);
+                  
+                  const userList = Object.keys(data[0]).filter(key => 
+                    key !== 'timestamp' && key !== 'Total_Online' && key !== ''
+                  );
+                  setUsers(userList);
+                  
+                  const days = [...new Set(data.map(row => {
+                    const timestamp = row.timestamp;
+                    if (timestamp && timestamp.includes(' ')) {
+                      return timestamp.split(' ')[0];
+                    }
+                    return timestamp;
+                  }))].filter(day => day).sort();
+                  
+                  setAvailableDays(days);
+                  setCurrentDay(Math.max(0, days.length - 1)); // Start with latest day
+                  setLastUpdated(new Date().toLocaleString());
+                  setLoading(false);
+                },
+                header: false,
+                skipEmptyLines: true
+              });
+            } catch (error) {
+              console.error('Error loading CSV:', error);
+              setLoading(false);
+            }
+          };
+
+          // Load data on component mount and every 5 minutes
+          useEffect(() => {
+            loadCSVFromGitHub();
+            const interval = setInterval(loadCSVFromGitHub, 5 * 60 * 1000); // 5 minutes
+            return () => clearInterval(interval);
+          }, []);
+
+          // Filter users based on search term
+          const filteredUsers = useMemo(() => {
+            return users.filter(user => 
+              user.toLowerCase().includes(searchTerm.toLowerCase())
+            );
+          }, [users, searchTerm]);
+
+          // Get data for current day
+          const currentDayData = useMemo(() => {
+            if (!selectedUser || availableDays.length === 0) return [];
+            
+            const targetDay = availableDays[currentDay];
+            const dayData = csvData.filter(row => 
+              row.timestamp.startsWith(targetDay)
+            );
+            
+            return dayData.map(row => ({
+              time: row.timestamp.split(' ')[1]?.substring(0, 5) || '00:00',
+              fullTime: row.timestamp,
+              online: row[selectedUser] || 0,
+              hour: parseInt(row.timestamp.split(' ')[1]?.split(':')[0] || '0')
+            })).sort((a, b) => a.hour - b.hour);
+          }, [csvData, selectedUser, currentDay, availableDays]);
+
+          // Calculate average data across all days
+          const averageData = useMemo(() => {
+            if (!selectedUser || availableDays.length <= 1) return [];
+            
+            const hourlyData = {};
+            
+            for (let hour = 0; hour < 24; hour++) {
+              hourlyData[hour] = { total: 0, count: 0 };
+            }
+            
+            csvData.forEach(row => {
+              if (row[selectedUser] !== undefined) {
+                const hour = parseInt(row.timestamp.split(' ')[1]?.split(':')[0] || '0');
+                hourlyData[hour].total += row[selectedUser];
+                hourlyData[hour].count += 1;
+              }
+            });
+            
+            return Object.keys(hourlyData).map(hour => ({
+              hour: parseInt(hour),
+              time: `${hour.padStart(2, '0')}:00`,
+              average: hourlyData[hour].count > 0 ? 
+                (hourlyData[hour].total / hourlyData[hour].count) * 100 : 0
+            }));
+          }, [csvData, selectedUser, availableDays]);
+
+          const handleUserSelect = (user) => {
+            setSelectedUser(user);
+            setSearchTerm(user);
+            setShowAutocomplete(false);
+            setShowAverage(false);
+          };
+
+          const nextDay = () => {
+            setCurrentDay(prev => Math.min(prev + 1, availableDays.length - 1));
+            setShowAverage(false);
+          };
+
+          const prevDay = () => {
+            setCurrentDay(prev => Math.max(prev - 1, 0));
+            setShowAverage(false);
+          };
+
+          const toggleAverage = () => {
+            if (availableDays.length > 1) {
+              setShowAverage(!showAverage);
+            }
+          };
+
+          const hasMultipleDays = availableDays.length > 1;
+
+          if (loading) {
+            return (
+              <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center">
+                <div className="text-white text-center">
+                  <RefreshCw className="w-12 h-12 mx-auto mb-4 animate-spin" />
+                  <h2 className="text-2xl font-bold mb-2">Loading User Activity Data...</h2>
+                  <p className="text-white/60">Fetching latest data from GitHub</p>
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 p-6">
+              <div className="max-w-7xl mx-auto">
+                <div className="bg-white/10 backdrop-blur-lg rounded-2xl shadow-2xl border border-white/20 p-8">
+                  <div className="flex items-center justify-between mb-8">
+                    <h1 className="text-4xl font-bold text-white">
+                      User Activity Visualizer
+                    </h1>
+                    <div className="text-right">
+                      <button
+                        onClick={loadCSVFromGitHub}
+                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors mb-2"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                        Refresh Data
+                      </button>
+                      {lastUpdated && (
+                        <p className="text-white/60 text-sm">Last updated: {lastUpdated}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Search Bar with Autocomplete */}
+                  <div className="relative mb-8">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-white/60 w-5 h-5" />
+                      <input
+                        type="text"
+                        placeholder="Search users..."
+                        value={searchTerm}
+                        onChange={(e) => {
+                          setSearchTerm(e.target.value);
+                          setShowAutocomplete(true);
+                        }}
+                        onFocus={() => setShowAutocomplete(true)}
+                        className="w-full pl-10 pr-4 py-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    
+                    {showAutocomplete && searchTerm && filteredUsers.length > 0 && (
+                      <div className="absolute z-10 w-full mt-1 bg-white/95 backdrop-blur-lg rounded-lg shadow-xl border border-white/30 max-h-60 overflow-y-auto">
+                        {filteredUsers.slice(0, 10).map((user, index) => (
+                          <div
+                            key={index}
+                            onClick={() => handleUserSelect(user)}
+                            className="px-4 py-3 hover:bg-blue-100 cursor-pointer text-gray-800 border-b border-gray-200 last:border-b-0"
+                          >
+                            {user}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {selectedUser && (
+                    <>
+                      {/* Controls */}
+                      <div className="flex flex-wrap items-center justify-between mb-8 gap-4">
+                        <div className="flex items-center gap-4">
+                          <button
+                            onClick={prevDay}
+                            disabled={currentDay === 0 || showAverage}
+                            className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <ChevronLeft className="w-5 h-5" />
+                          </button>
+                          
+                          <div className="text-white font-medium flex items-center gap-2">
+                            <Calendar className="w-5 h-5" />
+                            {showAverage ? 'Average across all days' : `Day: ${availableDays[currentDay]}`}
+                          </div>
+                          
+                          <button
+                            onClick={nextDay}
+                            disabled={currentDay === availableDays.length - 1 || showAverage}
+                            className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <ChevronRight className="w-5 h-5" />
+                          </button>
+                        </div>
+
+                        {hasMultipleDays && (
+                          <button
+                            onClick={toggleAverage}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
+                              showAverage 
+                                ? 'bg-green-600 text-white hover:bg-green-700' 
+                                : 'bg-purple-600 text-white hover:bg-purple-700'
+                            }`}
+                          >
+                            <TrendingUp className="w-5 h-5" />
+                            {showAverage ? 'Show Daily View' : 'Show Average'}
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Chart */}
+                      <div className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10">
+                        <h2 className="text-2xl font-bold text-white mb-4">
+                          Activity for: <span className="text-blue-300">{selectedUser}</span>
+                        </h2>
+                        
+                        <div className="h-96">
+                          <ResponsiveContainer width="100%" height="100%">
+                            {showAverage ? (
+                              <BarChart data={averageData}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                                <XAxis 
+                                  dataKey="time" 
+                                  stroke="white"
+                                  tick={{ fill: 'white' }}
+                                />
+                                <YAxis 
+                                  domain={[0, 100]}
+                                  stroke="white"
+                                  tick={{ fill: 'white' }}
+                                  label={{ value: 'Online %', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fill: 'white' } }}
+                                />
+                                <Tooltip 
+                                  contentStyle={{ 
+                                    backgroundColor: 'rgba(0,0,0,0.8)', 
+                                    border: '1px solid rgba(255,255,255,0.2)',
+                                    borderRadius: '8px',
+                                    color: 'white'
+                                  }}
+                                  formatter={(value) => [`${value.toFixed(1)}%`, 'Online Percentage']}
+                                  labelStyle={{ color: 'white' }}
+                                />
+                                <Bar 
+                                  dataKey="average" 
+                                  fill="url(#gradient)"
+                                  radius={[4, 4, 0, 0]}
+                                />
+                                <defs>
+                                  <linearGradient id="gradient" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="#3B82F6" />
+                                    <stop offset="100%" stopColor="#1E40AF" />
+                                  </linearGradient>
+                                </defs>
+                              </BarChart>
+                            ) : (
+                              <LineChart data={currentDayData}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                                <XAxis 
+                                  dataKey="time" 
+                                  stroke="white"
+                                  tick={{ fill: 'white' }}
+                                />
+                                <YAxis 
+                                  domain={[0, 1]}
+                                  stroke="white"
+                                  tick={{ fill: 'white' }}
+                                  tickFormatter={(value) => value === 1 ? 'Online' : 'Offline'}
+                                  label={{ value: 'Status', angle: -90, position: 'insideLeft', style: { textAnchor: 'middle', fill: 'white' } }}
+                                />
+                                <Tooltip 
+                                  contentStyle={{ 
+                                    backgroundColor: 'rgba(0,0,0,0.8)', 
+                                    border: '1px solid rgba(255,255,255,0.2)',
+                                    borderRadius: '8px',
+                                    color: 'white'
+                                  }}
+                                  formatter={(value) => [value === 1 ? 'Online' : 'Offline', 'Status']}
+                                  labelStyle={{ color: 'white' }}
+                                />
+                                <Line 
+                                  type="stepAfter" 
+                                  dataKey="online" 
+                                  stroke="#3B82F6" 
+                                  strokeWidth={3}
+                                  dot={{ fill: '#3B82F6', strokeWidth: 2, r: 4 }}
+                                  activeDot={{ r: 6, fill: '#60A5FA' }}
+                                />
+                              </LineChart>
+                            )}
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+
+                      {/* Stats */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
+                        <div className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10">
+                          <h3 className="text-white font-semibold mb-2">Total Days Logged</h3>
+                          <p className="text-3xl font-bold text-blue-300">{availableDays.length}</p>
+                        </div>
+                        
+                        <div className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10">
+                          <h3 className="text-white font-semibold mb-2">Total Users</h3>
+                          <p className="text-3xl font-bold text-green-300">{users.length}</p>
+                        </div>
+                        
+                        <div className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10">
+                          <h3 className="text-white font-semibold mb-2">Data Points</h3>
+                          <p className="text-3xl font-bold text-purple-300">{csvData.length}</p>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {!selectedUser && !loading && (
+                    <div className="text-center text-white/60 py-12">
+                      <Search className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                      <p className="text-xl">Select a user to view their activity timeline</p>
+                      <p className="mt-2">Use the search bar above to find users</p>
+                      <p className="mt-4 text-sm">
+                        Data automatically updates every 5 minutes • {csvData.length} records loaded
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        };
+
+        ReactDOM.render(<UserActivityVisualizer />, document.getElementById('root'));
+    </script>
+</body>
+</html>
