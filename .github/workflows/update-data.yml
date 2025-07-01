@@ -9,9 +9,8 @@ env:
 
 on:
   schedule:
-    # Run every hour at minute 0
-    - cron: '0 * * * *'
-  workflow_dispatch: # Allow manual trigger
+    - cron: '*/1 * * * *'  # Runs every minute at 0 seconds
+  workflow_dispatch:  # Allow manual trigger
 
 jobs:
   update-data:
