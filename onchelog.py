@@ -7,8 +7,8 @@ from datetime import datetime
 
 CSV_FILE = 'user_log.csv'
 URL = 'https://onche.org/user/logged'
-AUTH_COOKIE = os.environ.get('AUTH_COOKIE', '')
-SESS_COOKIE = os.environ.get('SESS_COOKIE', '')
+AUTH_COOKIE = os.getenv('AUTH_COOKIE', '').replace('\n', '').strip()
+SESS_COOKIE = os.getenv('SESS_COOKIE', '').replace('\n', '').strip()
 
 scraper = cloudscraper.create_scraper()
 
