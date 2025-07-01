@@ -1,5 +1,8 @@
 name: Update User Activity Data
 
+permissions:
+  contents: write
+
 env:
   AUTH_COOKIE: ${{ secrets.AUTH_COOKIE }}
   SESS_COOKIE: ${{ secrets.SESS_COOKIE }}
