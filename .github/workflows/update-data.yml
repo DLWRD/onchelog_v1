@@ -11,9 +11,6 @@ on:
 jobs:
   update-data:
     runs-on: ubuntu-latest
-    env:
-      AUTH_COOKIE: ${{ secrets.AUTH_COOKIE }}
-      SESS_COOKIE: ${{ secrets.SESS_COOKIE }}
     
     steps:
     - name: Checkout repository
@@ -31,6 +28,9 @@ jobs:
         
     - name: Run data collection script
       run: python onchelog.py
+      env:
+        AUTH_COOKIE: ${{ secrets.AUTH_COOKIE }}
+        SESS_COOKIE: ${{ secrets.SESS_COOKIE }}
       
     - name: Commit and push changes
       run: |
