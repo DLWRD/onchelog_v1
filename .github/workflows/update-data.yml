@@ -3,18 +3,17 @@ name: Update User Activity Data
 permissions:
   contents: write
 
-env:
-  AUTH_COOKIE: ${{ secrets.AUTH_COOKIE }}
-  SESS_COOKIE: ${{ secrets.SESS_COOKIE }}
-
 on:
   schedule:
     - cron: '*/1 * * * *'  # Runs every minute at 0 seconds
   workflow_dispatch:  # Allow manual trigger
-
+  
 jobs:
   update-data:
     runs-on: ubuntu-latest
+    env:
+      AUTH_COOKIE: ${{ secrets.AUTH_COOKIE }}
+      SESS_COOKIE: ${{ secrets.SESS_COOKIE }}
     
     steps:
     - name: Checkout repository
