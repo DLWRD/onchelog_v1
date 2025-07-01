@@ -18,6 +18,7 @@ HEADERS = {
     "Referer": "https://onche.org/",
     "Cookie": f"{AUTH_COOKIE}; {SESS_COOKIE}"
     }
+print(f"Cookie header: {AUTH_COOKIE[:10]}...; {SESS_COOKIE[:10]}...")
 
 def fetch_usernames():
     try:
